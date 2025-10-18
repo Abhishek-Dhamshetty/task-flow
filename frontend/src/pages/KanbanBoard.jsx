@@ -1,6 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
+import {
+  DndContext,
+  DragOverlay,
+  closestCorners,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable';
+import {
+  CSS,
+} from '@dnd-kit/utilities';
 import { useTask } from '../context/TaskContext';
 import { projectAPI, taskAPI } from '../services/api';
 import { ArrowLeft, Plus, Brain, MessageCircle } from 'lucide-react';
@@ -10,6 +27,90 @@ import EditTaskModal from '../components/EditTaskModal';
 import AISummaryModal from '../components/AISummaryModal';
 import AIQuestionModal from '../components/AIQuestionModal';
 
+// Sortable Task Item Component
+const SortableTaskItem = ({ task, onEdit, onDelete, getPriorityColor }) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: task._id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className={`transition-all duration-200 ${isDragging ? 'z-50' : ''}`}
+    >
+      <TaskCard
+        task={task}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        getPriorityColor={getPriorityColor}
+      />
+    </div>
+  );
+};
+
+// Droppable Column Component
+const DroppableColumn = ({ column, tasks, onEdit, onDelete, getPriorityColor, onAddTask }) => {
+  return (
+    <div className="bg-gray-50 rounded-lg p-4">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="font-semibold text-gray-900 flex items-center">
+          {column.name}
+          <span className="ml-2 bg-gray-200 text-gray-700 text-xs px-2 py-1 rounded-full">
+            {tasks.length}
+          </span>
+        </h3>
+        <button
+          onClick={() => onAddTask(column.name)}
+          className="text-gray-400 hover:text-blue-600 transition-colors"
+          title={`Add task to ${column.name}`}
+        >
+          <Plus size={18} />
+        </button>
+      </div>
+
+      <SortableContext items={tasks.map(task => task._id)} strategy={verticalListSortingStrategy}>
+        <div className="min-h-32 space-y-3 p-2 rounded-lg">
+          {tasks.map((task) => (
+            <SortableTaskItem
+              key={task._id}
+              task={task}
+              onEdit={() => onEdit(task)}
+              onDelete={() => onDelete(task._id)}
+              getPriorityColor={getPriorityColor}
+            />
+          ))}
+          
+          {tasks.length === 0 && (
+            <div className="text-center py-8 text-gray-400">
+              <p className="text-sm">No tasks yet</p>
+              <button
+                onClick={() => onAddTask(column.name)}
+                className="text-blue-600 hover:text-blue-700 text-sm mt-2"
+              >
+                Add your first task
+              </button>
+            </div>
+          )}
+        </div>
+      </SortableContext>
+    </div>
+  );
+};
+
 const KanbanBoard = () => {
   const { projectId } = useParams();
   const { state, dispatch } = useTask();
@@ -18,6 +119,16 @@ const KanbanBoard = () => {
   const [editingTask, setEditingTask] = useState(null);
   const [showAISummary, setShowAISummary] = useState(false);
   const [showAIQuestion, setShowAIQuestion] = useState(false);
+  const [activeId, setActiveId] = useState(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor)
+  );
 
   useEffect(() => {
     loadProjectAndTasks();
@@ -38,19 +149,70 @@ const KanbanBoard = () => {
     }
   };
 
-  const handleDragEnd = async (result) => {
-    if (!result.destination) return;
+  const handleDragStart = (event) => {
+    setActiveId(event.active.id);
+  };
 
-    const { source, destination, draggableId } = result;
+  const handleDragOver = (event) => {
+    const { active, over } = event;
     
-    if (source.droppableId === destination.droppableId && source.index === destination.index) {
-      return;
+    if (!over) return;
+
+    const activeId = active.id;
+    const overId = over.id;
+
+    // Find the containers
+    const activeTask = state.tasks.find(task => task._id === activeId);
+    if (!activeTask) return;
+
+    // Check if we're hovering over a different column
+    const columns = ['To Do', 'In Progress', 'Done'];
+    const overColumn = columns.find(col => overId === col) || 
+                      state.tasks.find(task => task._id === overId)?.status;
+
+    if (overColumn && activeTask.status !== overColumn) {
+      // Move task to different column
+      const updatedTasks = state.tasks.map(task => 
+        task._id === activeId 
+          ? { ...task, status: overColumn }
+          : task
+      );
+      dispatch({ type: 'SET_TASKS', payload: updatedTasks });
     }
+  };
+
+  const handleDragEnd = async (event) => {
+    const { active, over } = event;
+    setActiveId(null);
+
+    if (!over) return;
+
+    const activeId = active.id;
+    const overId = over.id;
+
+    const activeTask = state.tasks.find(task => task._id === activeId);
+    if (!activeTask) return;
 
     try {
-      await taskAPI.move(draggableId, {
-        newStatus: destination.droppableId,
-        newOrder: destination.index
+      // Determine the new status
+      const columns = ['To Do', 'In Progress', 'Done'];
+      let newStatus = activeTask.status;
+      
+      // Check if dropped on a column header or another task
+      const overColumn = columns.find(col => overId === col);
+      if (overColumn) {
+        newStatus = overColumn;
+      } else {
+        const overTask = state.tasks.find(task => task._id === overId);
+        if (overTask) {
+          newStatus = overTask.status;
+        }
+      }
+
+      // Update task on server
+      await taskAPI.move(activeId, {
+        newStatus,
+        newOrder: 0 // Simple ordering for now
       });
       
       // Reload tasks to get updated order
@@ -58,6 +220,8 @@ const KanbanBoard = () => {
       dispatch({ type: 'SET_TASKS', payload: tasksResponse.data });
     } catch (error) {
       dispatch({ type: 'SET_ERROR', payload: error.message });
+      // Reload tasks to revert changes
+      loadProjectAndTasks();
     }
   };
 
@@ -117,6 +281,8 @@ const KanbanBoard = () => {
     { name: 'Done', order: 2 }
   ];
 
+  const activeTask = activeId ? state.tasks.find(task => task._id === activeId) : null;
+
   return (
     <div>
       {/* Header */}
@@ -163,89 +329,38 @@ const KanbanBoard = () => {
       )}
 
       {/* Kanban Board */}
-      <DragDropContext onDragEnd={handleDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+      >
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {columns.sort((a, b) => a.order - b.order).map((column) => (
-            <div key={column.name} className="bg-gray-50 rounded-lg p-4">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-semibold text-gray-900 flex items-center">
-                  {column.name}
-                  <span className="ml-2 bg-gray-200 text-gray-700 text-xs px-2 py-1 rounded-full">
-                    {getTasksByStatus(column.name).length}
-                  </span>
-                </h3>
-                <button
-                  onClick={() => handleCreateTask(column.name)}
-                  className="text-gray-400 hover:text-blue-600 transition-colors"
-                  title={`Add task to ${column.name}`}
-                >
-                  <Plus size={18} />
-                </button>
-              </div>
-
-              <Droppable 
-                droppableId={column.name}
-                isDropDisabled={false}
-                isCombineEnabled={false}
-                ignoreContainerClipping={false}
-              >
-                {(provided, snapshot) => (
-                  <div
-                    ref={provided.innerRef}
-                    {...provided.droppableProps}
-                    className={`min-h-32 space-y-3 p-2 rounded-lg transition-colors ${
-                      snapshot.isDraggingOver ? 'bg-blue-50 border-2 border-blue-200 border-dashed' : ''
-                    }`}
-                  >
-                    {getTasksByStatus(column.name).map((task, index) => (
-                      <Draggable 
-                        key={task._id} 
-                        draggableId={task._id} 
-                        index={index}
-                        isDragDisabled={false}
-                      >
-                        {(provided, snapshot) => (
-                          <div
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            {...provided.dragHandleProps}
-                            className={`transition-transform ${
-                              snapshot.isDragging ? 'rotate-2 shadow-lg scale-105' : ''
-                            }`}
-                            style={{
-                              ...provided.draggableProps.style,
-                            }}
-                          >
-                            <TaskCard
-                              task={task}
-                              onEdit={() => setEditingTask(task)}
-                              onDelete={() => handleDeleteTask(task._id)}
-                              getPriorityColor={getPriorityColor}
-                            />
-                          </div>
-                        )}
-                      </Draggable>
-                    ))}
-                    {provided.placeholder}
-                    
-                    {getTasksByStatus(column.name).length === 0 && (
-                      <div className="text-center py-8 text-gray-400">
-                        <p className="text-sm">No tasks yet</p>
-                        <button
-                          onClick={() => handleCreateTask(column.name)}
-                          className="text-blue-600 hover:text-blue-700 text-sm mt-2"
-                        >
-                          Add your first task
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </Droppable>
-            </div>
+            <DroppableColumn
+              key={column.name}
+              column={column}
+              tasks={getTasksByStatus(column.name)}
+              onEdit={setEditingTask}
+              onDelete={handleDeleteTask}
+              getPriorityColor={getPriorityColor}
+              onAddTask={handleCreateTask}
+            />
           ))}
         </div>
-      </DragDropContext>
+
+        <DragOverlay>
+          {activeTask ? (
+            <TaskCard
+              task={activeTask}
+              onEdit={() => {}}
+              onDelete={() => {}}
+              getPriorityColor={getPriorityColor}
+            />
+          ) : null}
+        </DragOverlay>
+      </DndContext>
 
       {/* Modals */}
       {showCreateTask && (
