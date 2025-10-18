@@ -8,8 +8,8 @@
 
 ## 🎬 Live Demo
 
-### 🔗 **Live Application**: [TaskFlow AI](https://task-flow-omega.vercel.app)
-### 🔗 **Backend API**: [TaskFlow API](https://taskflow-api.onrender.com)
+### 🔗 **Live Application**: [TaskFlow AI](https://task-flow-gamma-ten.vercel.app)
+### 🔗 **Backend API**: [TaskFlow API](https://task-flow-v5ts.onrender.com)
 
 ## ✨ Features
 
@@ -40,7 +40,7 @@
 - **React 19** - Latest React with Concurrent Features and improved performance
 - **Vite** - Lightning-fast build tool with hot module replacement
 - **Tailwind CSS** - Utility-first CSS framework for rapid styling
-- **React Beautiful DnD** - Smooth drag and drop functionality
+- **@dnd-kit** - Modern drag and drop functionality (React 19 compatible)
 - **Axios** - Promise-based HTTP client with interceptors
 - **React Router** - Declarative client-side routing
 - **Lucide React** - Beautiful, customizable icon library
@@ -113,7 +113,7 @@ npm run dev
 ```
 
 ### 4. Open Application
-Visit [http://localhost:5173](http://localhost:5173) to access TaskFlow AI.
+Visit [http://localhost:5173](http://localhost:5173) to access TaskFlow AI locally, or visit the live demo at [https://task-flow-gamma-ten.vercel.app](https://task-flow-gamma-ten.vercel.app).
 
 ## 📁 Project Structure
 
@@ -227,14 +227,14 @@ vercel --prod
 ```env
 NODE_ENV=production
 PORT=10000
-MONGODB_URI=your_production_mongodb_uri
-GEMINI_API_KEY=your_gemini_api_key
-FRONTEND_URL=your_vercel_deployment_url
+MONGODB_URI=mongodb+srv://abhishekdhamshetty:Abhi2005@devvoid.wujikgu.mongodb.net/taskmanagement
+GEMINI_API_KEY=AIzaSyBztC4xh2tuFYWJUms7mVbahw07Wn5zwYE
+FRONTEND_URL=https://task-flow-gamma-ten.vercel.app
 ```
 
 **Vercel (Frontend)**:
 ```env
-VITE_API_URL=your_render_backend_url/api
+VITE_API_URL=https://task-flow-v5ts.onrender.com/api
 ```
 
 ## 🧪 Testing
@@ -242,13 +242,13 @@ VITE_API_URL=your_render_backend_url/api
 ### Backend API Testing
 ```bash
 # Test AI connectivity
-curl http://localhost:5001/api/ai/test
+curl https://task-flow-v5ts.onrender.com/api/ai/test
 
 # Test health endpoint
-curl http://localhost:5001/api/health
+curl https://task-flow-v5ts.onrender.com/api/health
 
 # Test projects endpoint
-curl http://localhost:5001/api/projects
+curl https://task-flow-v5ts.onrender.com/api/projects
 ```
 
 ### Frontend Testing
